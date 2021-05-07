@@ -17,9 +17,53 @@ class YoloLayer(nn.Module):
     def call(self, call):
         pass
 
+    @staticmethod
+    def boxes_regression(inputs, anchors):
+        """
+        Tensor.shape = [batch_size, channels, width, height]
+        Channels = (coords(4) + objectness(1) + n_classes(80 in COCO dataset)) * n_anchor_boxes (3) = 255
+
+        small_input, medium_input, large_input = inputs
+        small_anchors, medium_anchors, large_anchors = anchors
+        anchors.shape = [2, 1, 1, 3]
+        """
+        width, height = (inputs.shape[2], inputs.shape[3])
+
+        # inputs: [batch_size, C, W, H] --> [batch_size, 5 + n_classes, W, H, n_anchors]
+        inputs = torch.unsqueeze(inputs, dim=4)
+        inputs = torch.split(inputs, 85, dim=1)
+        inputs = torch.cat(inputs, dim=-1)
+
+        # split center coords, width and height, objectness and class probabilities
+        t_xy, t_wh, objectness, class_prob = torch.split(inputs, [2, 2, 1, N_CLASSES], dim=1)
+
+        # create grid with shape: [2, W, H]
+        grid = torch.meshgrid(torch.arange(width), torch.arange(height))
+        grid = torch.stack(grid, dim=0)
+
+        # apply sigmoid to center coords, objectness and class probabilities
+        b_xy = torch.sigmoid(t_xy)
+        objectness = torch.sigmoid(objectness)
+        class_p = torch.sigmoid(class_prob)
+
+        # normalize b_xy values to (0, 1)
+        b_xy = (b_xy + grid.float()) / torch.tensor([width, height], dtype=torch.float32)
+
+        # calculate real width and height of bounding boxes
+        anchors = torch.unsqueeze(anchors, dim=1)
+        anchors = torch.unsqueeze(anchors, dim=1)
+        b_wh = torch.exp(t_wh) * anchors
+
+        # calculate class confidences
+        conf = class_p * objectness
+
+        # boxes = x1, y1, x2, y2
+
+        return conf
+
 
 class YoloHead(nn.Module):
-    def __init__(self, inference=True):
+    def __init__(self, inference=False):
         super(YoloHead, self).__init__()
         self.inference = inference
 
@@ -51,10 +95,8 @@ class YoloHead(nn.Module):
             a = self.yolo1(a)
             b = self.yolo2(b)
             c = self.yolo3(c)
-            print(a.shape(), b.shape(), c.shape())
+
             a, b, c = a, b, c          # apply region boxes
 
+        print(a.shape, b.shape, c.shape)
         return a, b, c
-
-
-
