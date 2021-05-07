@@ -29,22 +29,25 @@ class YoloLayer(nn.Module):
         return x
 
     def boxes_regression(self, inputs):
-        """
+        """ Apply box regression and calculate scores.
+
         Split input flot32 tensor into t_xy, t_wh, objectness and class probabilities.
         Apply sigmoid function to t_x, t_y, objectness and class probability; apply exp
         function to t_w, t_h. Then add offset to center coordinates of bounding boxes
         and calculate x1, y1, x2 and y2 values to create float32 tensor with bounding
         boxes. Then calculate class probabilities and get scores from this tensor.
-        :param
+
+        Args:
             inputs: A [batch_size, (5 + n_classes) * n_anchors, width, height] float32
-              tensor containing output of last conv layers of YOLO model.
-        :return:
+                tensor containing output of last conv layers of YOLO model.
+
+        Returns:
             boxes: A [batch_size, n_boxes, 4] float32 tensor containing normalized
-              x1, y1, x2, y2 values in range [0, 1] for bounding boxes.
+                x1, y1, x2, y2 values in range [0, 1] for bounding boxes.
             conf: A [batch_size, n_boxes, n_classes] float32 tensor containing
-              probabilities of classes that correspond to bounding boxes.
+                probabilities of classes that correspond to bounding boxes.
             scores: A [batch_size, n_boxes] float32 tensor containing scores of
-              objectness than correspond to bounding boxes.
+                objectness than correspond to bounding boxes.
         """
         batch_size, channels, width, height = inputs.shape
 
