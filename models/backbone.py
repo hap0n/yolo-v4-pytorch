@@ -7,19 +7,20 @@ class ResBlock(nn.Module):
     """ Residual block that repeat 2 convolutional layers n times """
     def __init__(self, filters, num_blocks):
         super(ResBlock, self).__init__()
-        self.num_blocks = num_blocks
+        self.module_list = nn.ModuleList()
         for i in range(num_blocks):
-            vars(self)[f'conv{i}_1'] = Conv(filters, filters, 1, 1, Mish())
-            vars(self)[f'conv{i}_3'] = Conv(filters, filters, 3, 1, Mish())
+            res_block = nn.ModuleList()
+            res_block.append(Conv(filters, filters, 1, 1, Mish()))
+            res_block.append(Conv(filters, filters, 3, 1, Mish()))
+            self.module_list.append(res_block)
 
     def forward(self, x):
         shortcut = x
-        for i in range(self.num_blocks):
-            conv1 = vars(self)[f'conv{i}_1']
-            x = conv1(shortcut)
-            conv3 = vars(self)[f'conv{i}_3']
-            x = conv3(x)
-            shortcut = x + shortcut
+        for module in self.module_list:
+            shortcut = x
+            for res in module: # noqa
+                shortcut = res(shortcut)
+            x = x + shortcut
         return shortcut
 
 
@@ -63,8 +64,8 @@ class CSPDarknetBlock(nn.Module):
         super(CSPDarknetBlock, self).__init__()
         self.conv0 = Conv(filters, filters*2, 3, 2, Mish())
         self.conv1 = Conv(filters*2, filters, 1, 1, Mish())
-        self.res_block = ResBlock(filters, num_blocks)
         self.conv2 = Conv(filters*2, filters, 1, 1, Mish())
+        self.res_block = ResBlock(filters, num_blocks)
         self.conv3 = Conv(filters, filters, 1, 1, Mish())
         self.conv4 = Conv(filters*2, filters*2, 1, 1, Mish())
 
