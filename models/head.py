@@ -100,6 +100,31 @@ class YoloLayer(nn.Module):
         return
 
 
+class CSPDown(nn.Module):
+    def __init__(self, filters):
+        super(CSPDown, self).__init__()
+        self.conv0 = Conv(filters, filters*2, 3, 2)
+        self.conv1 = Conv(filters*4, filters*2, 1, 1)
+        self.conv2 = Conv(filters*2, filters*4, 3, 1)
+        self.conv3 = Conv(filters*4, filters*2, 1, 1)
+        self.conv4 = Conv(filters*2, filters*4, 3, 1)
+        self.conv5 = Conv(filters*4, filters*2, 1, 1)
+
+    def forward(self, x):
+        a, b = x
+
+        a = self.conv0(a)
+        x = torch.cat([a, b], dim=1)
+
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+
+        return x
+
+
 class YoloHead(nn.Module):
     def __init__(self, inference=False):
         super(YoloHead, self).__init__()
@@ -109,10 +134,12 @@ class YoloHead(nn.Module):
         self.conv2 = Conv(256, OUT_CHANNELS, 1, 1, activation=None, use_bn=False, bias=True)
         self.yolo1 = YoloLayer(ANCHORS[0])
 
+        self.down1 = CSPDown(128)
         self.conv3 = Conv(256, 512, 3, 1)
         self.conv4 = Conv(512, OUT_CHANNELS, 1, 1, activation=None, use_bn=False, bias=True)
         self.yolo2 = YoloLayer(ANCHORS[1])
 
+        self.down2 = CSPDown(256)
         self.conv5 = Conv(512, 1024, 3, 1)
         self.conv6 = Conv(1024, OUT_CHANNELS, 1, 1, activation=None, use_bn=False, bias=True)
         self.yolo3 = YoloLayer(ANCHORS[2])
@@ -120,21 +147,23 @@ class YoloHead(nn.Module):
     def forward(self, x):
         a, b, c = x
 
-        a = self.conv1(a)
-        a = self.conv2(a)
+        b = self.down1((a, b))
+        c = self.down2((b, c))
 
-        b = self.conv3(b)
-        b = self.conv4(b)
+        output1 = self.conv1(a)
+        output1 = self.conv2(output1)
 
-        c = self.conv5(c)
-        c = self.conv6(c)
+        output2 = self.conv3(b)
+        output2 = self.conv4(output2)
+
+        output3 = self.conv5(c)
+        output3 = self.conv6(output3)
 
         if self.inference:
-            a = self.yolo1(a)
-            b = self.yolo2(b)
-            c = self.yolo3(c)
+            output1 = self.yolo1(output1)
+            output2 = self.yolo2(output2)
+            output3 = self.yolo3(output3)
 
-            a, b, c = a, b, c          # apply region boxes
+            # apply region boxes
 
-        print(a.shape, b.shape, c.shape)
-        return a, b, c
+        return output1, output2, output3

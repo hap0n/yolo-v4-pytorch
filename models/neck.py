@@ -66,40 +66,12 @@ class CSPUp(nn.Module):
         return x
 
 
-class CSPDown(nn.Module):
-    def __init__(self, filters):
-        super(CSPDown, self).__init__()
-        self.conv0 = Conv(filters, filters*2, 3, 2)
-        self.conv1 = Conv(filters*4, filters*2, 1, 1)
-        self.conv2 = Conv(filters*2, filters*4, 3, 1)
-        self.conv3 = Conv(filters*4, filters*2, 1, 1)
-        self.conv4 = Conv(filters*2, filters*4, 3, 1)
-        self.conv5 = Conv(filters*4, filters*2, 1, 1)
-
-    def forward(self, x):
-        a, b = x
-
-        a = self.conv0(a)
-        x = torch.cat([a, b], dim=1)
-
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        x = self.conv5(x)
-
-        return x
-
-
-class PANet(nn.Module):
-    """ Neck of YOLOv4 model """
+class YoloNeck(nn.Module):
     def __init__(self):
-        super(PANet, self).__init__()
+        super(YoloNeck, self).__init__()
         self.spp = SPP()
         self.up1 = CSPUp(256)
         self.up2 = CSPUp(128)
-        self.down1 = CSPDown(128)
-        self.down2 = CSPDown(256)
 
     def forward(self, x):
         a, b, c = x
@@ -107,7 +79,5 @@ class PANet(nn.Module):
         b = self.up1((b, c))
         a = self.up2((a, b))
 
-        b = self.down1((a, b))
-        c = self.down2((b, c))
-
         return a, b, c
+
