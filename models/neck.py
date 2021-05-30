@@ -3,9 +3,9 @@ from torch import nn
 import torch
 
 
-class SPP(nn.Module):
+class CSPSPP(nn.Module):
     def __init__(self):
-        super(SPP, self).__init__()
+        super(CSPSPP, self).__init__()
         filters = 512
         self.conv0 = Conv(filters*2, filters, 1, 1)
         self.conv1 = Conv(filters, filters*2, 3, 1)
@@ -69,15 +69,15 @@ class CSPUp(nn.Module):
 class YoloNeck(nn.Module):
     def __init__(self):
         super(YoloNeck, self).__init__()
-        self.spp = SPP()
+        self.spp = CSPSPP()
         self.up1 = CSPUp(256)
         self.up2 = CSPUp(128)
 
     def forward(self, x):
         a, b, c = x
+
         c = self.spp(c)
         b = self.up1((b, c))
         a = self.up2((a, b))
 
         return a, b, c
-

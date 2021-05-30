@@ -1,16 +1,10 @@
 # YOLOv4-CSP
 
-## Installation
-
-## Inference
-
-## Training
-
 ## TODO list
-- [ ] Inference
-    - [ ] bbox regression + nms
-    - [ ] Load Weights
-    - [ ] Image loading and preprocessing
+- [x] Inference
+    - [x] bbox regression + nms
+    - [x] Load Weights
+    - [x] Image loading and preprocessing
 
 - [ ] Training
     - [ ] YOLO3 loss

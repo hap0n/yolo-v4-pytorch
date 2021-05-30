@@ -3,101 +3,58 @@ from utils import Conv
 import torch
 
 
-ANCHORS = [[[12, 16], [19, 36], [40, 28]],
-           [[36, 75], [76, 55], [72, 146]],
-           [[142, 110], [192, 243], [459, 401]]]
-N_ANCHOR_BOXES = 3
+ANCHORS = torch.Tensor([
+    [[12, 16], [19, 36], [40, 28]],
+    [[36, 75], [76, 55], [72, 146]],
+    [[142, 110], [192, 243], [459, 401]]
+])
+N_ANCHORS = 3
 N_CLASSES = 80
-OUT_CHANNELS = (5 + N_CLASSES) * N_ANCHOR_BOXES
+OUT_CHANNELS = (5 + N_CLASSES) * N_ANCHORS
 
 
 class YoloLayer(nn.Module):
     def __init__(self, anchors):
         super(YoloLayer, self).__init__()
+        self.anchors = anchors.view(1, N_ANCHORS, 1, 1, 2).float()
 
-        anchors = torch.tensor(anchors, dtype=torch.float32)
-        anchors = torch.swapaxes(anchors, 0, 1)
-        anchors = torch.unsqueeze(anchors, dim=1)
-        anchors = torch.unsqueeze(anchors, dim=1)
-        self.anchors = anchors
+    def forward(self, inputs, img_size):
+        batch_size, _, width, height = inputs.shape
 
-    def forward(self, inputs):
-        # if self.training:
-        #     return inputs
-        x = self.boxes_regression(inputs)
-        # nms
-        return x
-
-    def boxes_regression(self, inputs):
-        """ Apply box regression and calculate scores.
-
-        Split input flot32 tensor into t_xy, t_wh, objectness and class probabilities.
-        Apply sigmoid function to t_x, t_y, objectness and class probability; apply exp
-        function to t_w, t_h. Then add offset to center coordinates of bounding boxes
-        and calculate x1, y1, x2 and y2 values to create float32 tensor with bounding
-        boxes. Then calculate class probabilities and get scores from this tensor.
-
-        Args:
-            inputs: A [batch_size, (5 + n_classes) * n_anchors, width, height] float32
-                tensor containing output of last conv layers of YOLO model.
-
-        Returns:
-            boxes: A [batch_size, n_boxes, 4] float32 tensor containing normalized
-                x1, y1, x2, y2 values in range [0, 1] for bounding boxes.
-            conf: A [batch_size, n_boxes, n_classes] float32 tensor containing
-                probabilities of classes that correspond to bounding boxes.
-            scores: A [batch_size, n_boxes] float32 tensor containing scores of
-                objectness than correspond to bounding boxes.
-        """
-        batch_size, channels, width, height = inputs.shape
-
-        # inputs: [batch_size, C, W, H] --> [batch_size, 5 + n_classes, W, H, n_anchors]
-        inputs = torch.unsqueeze(inputs, dim=4)
-        inputs = torch.split(inputs, 85, dim=1)
-        inputs = torch.cat(inputs, dim=-1)
+        # inputs: [batch_size, C, W, H] --> [batch_size, n_anchors, W, H, 5 + n_classes]
+        inputs = inputs.view(batch_size, N_ANCHORS, 5 + N_CLASSES, width, height).permute(0, 1, 3, 4, 2).contiguous()
 
         # split center coords, width and height, objectness and class probabilities
-        t_xy, t_wh, objectness, class_prob = torch.split(inputs, [2, 2, 1, N_CLASSES], dim=1)
+        t_xy, t_wh, objectness, class_prob = torch.split(inputs, [2, 2, 1, N_CLASSES], dim=-1)
 
-        # create grid with shape: [2, W, H]
-        grid = torch.meshgrid(torch.arange(width), torch.arange(height))
-        grid = torch.stack(grid, dim=0).view(1, 2, width, height, 1)
-
-        # apply sigmoid to center coords, objectness and class probabilities
-        b_xy = torch.sigmoid(t_xy)
+        # apply sigmoid to objectness and class probabilities
         objectness = torch.sigmoid(objectness)
-        class_p = torch.sigmoid(class_prob)
+        class_prob = torch.sigmoid(class_prob)
 
-        # normalize b_xy values to (0, 1)
-        n = torch.tensor([width, height], dtype=torch.float32).view(1, -1, 1, 1, 1)
-        b_xy = (b_xy + grid.float()) / n
+        # create grid with shape: [W, H, 2]
+        yv, xv = torch.meshgrid([torch.arange(width), torch.arange(height)])
+        c_xy = torch.stack((xv, yv), dim=2).view(1, 1, width, height, 2).float()
+
+        if inputs.is_cuda:
+            c_xy = c_xy.cuda()
+            self.anchors = self.anchors.cuda()
+
+        stride = img_size // width
+        b_xy = (torch.sigmoid(t_xy) + c_xy) * stride
 
         # calculate real width and height of bounding boxes
         b_wh = torch.exp(t_wh) * self.anchors
 
-        # calculate class confidences
-        conf = class_p * objectness
-        conf = conf.view(batch_size, N_CLASSES, -1)
-        conf = torch.swapaxes(conf, 1, 2)
+        x1y1 = b_xy - b_wh / 2.
+        x2y2 = b_xy + b_wh / 2.
 
-        # create tensor with scores
-        scores = torch.max(conf, dim=2).values
+        boxes = torch.cat([x1y1, x2y2], dim=-1).view(batch_size, -1, 4)
+        objectness = objectness.view(batch_size, -1, 1)
+        class_prob = class_prob.view(batch_size, -1, N_CLASSES)
 
-        # calculate x1, y1, x2, y2 and stack them
-        x1y1 = b_xy - b_wh / 2
-        x1, y1 = torch.split(x1y1, [1, 1], dim=1)
+        prediction = torch.cat([boxes, objectness, class_prob], dim=-1)
 
-        x2y2 = b_xy + b_wh / 2
-        x2, y2 = torch.split(x2y2, [1, 1], dim=1)
-
-        boxes = torch.cat([x1, y1, x2, y2], dim=1).view(batch_size, 4, -1)
-        boxes = torch.swapaxes(boxes, 1, 2)
-
-        return boxes, conf, scores
-
-    @staticmethod
-    def yolo_nms():
-        return
+        return prediction
 
 
 class CSPDown(nn.Module):
@@ -126,9 +83,8 @@ class CSPDown(nn.Module):
 
 
 class YoloHead(nn.Module):
-    def __init__(self, inference=False):
+    def __init__(self):
         super(YoloHead, self).__init__()
-        self.inference = inference
 
         self.conv1 = Conv(128, 256, 3, 1)
         self.conv2 = Conv(256, OUT_CHANNELS, 1, 1, activation=None, use_bn=False, bias=True)
@@ -144,7 +100,7 @@ class YoloHead(nn.Module):
         self.conv6 = Conv(1024, OUT_CHANNELS, 1, 1, activation=None, use_bn=False, bias=True)
         self.yolo3 = YoloLayer(ANCHORS[2])
 
-    def forward(self, x):
+    def forward(self, x, img_size, inference=True):
         a, b, c = x
 
         b = self.down1((a, b))
@@ -159,11 +115,13 @@ class YoloHead(nn.Module):
         output3 = self.conv5(c)
         output3 = self.conv6(output3)
 
-        if self.inference:
-            output1 = self.yolo1(output1)
-            output2 = self.yolo2(output2)
-            output3 = self.yolo3(output3)
+        if inference:
+            prediction1 = self.yolo1(output1, img_size)
+            prediction2 = self.yolo2(output2, img_size)
+            prediction3 = self.yolo3(output3, img_size)
 
-            # apply region boxes
+            prediction = torch.cat([prediction1, prediction2, prediction3], dim=1)
+
+            return prediction
 
         return output1, output2, output3

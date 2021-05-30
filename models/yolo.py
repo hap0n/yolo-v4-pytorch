@@ -13,9 +13,9 @@ class YOLOv4(nn.Module):
         self.neck = YoloNeck()
         self.head = YoloHead()
 
-    def forward(self, x):
+    def forward(self, x, img_size):
         x = self.backbone(x)
         x = self.neck(x)
-        x = self.head(x)
+        x = self.head(x, img_size)
 
         return x

@@ -95,7 +95,9 @@ class CSPDarknet53(nn.Module):
     def forward(self, x):
         x = self.block0(x)
         x = self.block1(x)
+
         output1 = self.block2(x)
         output2 = self.block3(output1)
         output3 = self.block4(output2)
+
         return output1, output2, output3
